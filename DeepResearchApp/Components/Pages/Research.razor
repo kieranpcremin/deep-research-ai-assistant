@@ -1,0 +1,482 @@
+@page "/"
+@rendermode InteractiveServer
+@inject ISearchService SearchService
+@inject IWebFetcher WebFetcher
+@inject IContentExtractor ContentExtractor
+@inject ILlmService LlmService
+@inject ApiKeyStore ApiKeys
+@inject LocalStorageService LocalStorage
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>Deep Research</PageTitle>
+
+<!-- ── Query Card ─────────────────────────────────────────────────────────── -->
+<div class="page-header">
+    <h1>&#x1F9EA; Deep Research</h1>
+    <p>Enter a research query. The app will search the web, extract content from top results, then synthesize a comprehensive report using your chosen AI.</p>
+</div>
+
+@if (!ApiKeys.HasSerperKey || !ApiKeys.ConfiguredProviders.Any())
+{
+    <div class="alert alert-info">
+        &#x26A0;&#xFE0F; Please <a href="/config">configure your API keys</a> before starting a research session.
+        You need a <strong>Serper API key</strong> and at least one <strong>AI provider key</strong>.
+    </div>
+}
+
+<div class="card">
+    <div class="card-title">&#x1F4DD; Research Query</div>
+
+    <label>What do you want to research?</label>
+    <textarea class="form-control" rows="3"
+              placeholder="e.g. What are the latest developments in quantum computing in 2025?"
+              @bind="_query" @bind:event="oninput"
+              disabled="@IsRunning"></textarea>
+
+    <div class="form-row" style="margin-top:1rem;">
+        <div>
+            <label>Number of sources (@_sourceCount)</label>
+            <input type="range" min="3" max="15" step="1"
+                   @bind="_sourceCount" @bind:event="oninput"
+                   style="width:100%;margin-top:.35rem;"
+                   disabled="@IsRunning" />
+        </div>
+        <div>
+            <label>AI Provider</label>
+            <select class="form-select" value="@_provider" @onchange="OnProviderChanged" disabled="@IsRunning">
+                @foreach (var p in Enum.GetValues<LlmProvider>())
+                {
+                    var hasKey = ApiKeys.HasKey(p);
+                    <option value="@p" disabled="@(!hasKey)">
+                        @ProviderLabel(p)@(hasKey ? "" : " (no key)")
+                    </option>
+                }
+            </select>
+        </div>
+    </div>
+
+    <div class="btn-group" style="margin-top:1.1rem;">
+        @if (!IsRunning)
+        {
+            <button class="btn btn-primary" @onclick="StartResearch" disabled="@(!CanResearch)">
+                &#x1F50D; Start Research
+            </button>
+        }
+        else
+        {
+            <button class="btn btn-danger" @onclick="Cancel">
+                &#x23F9;&#xFE0F; Stop
+            </button>
+        }
+
+        @if (_phase == Phase.Done || _phase == Phase.Error)
+        {
+            <button class="btn btn-ghost" @onclick="Reset">
+                &#x1F504; New Query
+            </button>
+        }
+    </div>
+</div>
+
+<!-- ── Phase 1: Searching ─────────────────────────────────────────────────── -->
+@if (_phase == Phase.Searching)
+{
+    <div class="phase-banner searching">
+        <span class="spinner"></span>
+        Searching for <em>&ldquo;@_query&rdquo;</em>&hellip;
+    </div>
+}
+
+<!-- ── Phase 2: Fetching Sources ──────────────────────────────────────────── -->
+@if (_phase is Phase.Fetching or Phase.Synthesising or Phase.Elaborating or Phase.Done or Phase.Error && _sources.Count > 0)
+{
+    <div class="card">
+        <div class="card-title">
+            &#x1F310; Sources
+            <span class="badge badge-accent">@_sources.Count(s => s.Status == FetchStatus.Success) / @_sources.Count fetched</span>
+            @if (_phase == Phase.Fetching)
+            {
+                <span class="spinner" style="margin-left:auto;"></span>
+            }
+        </div>
+
+        <div class="source-list">
+            @foreach (var src in _sources)
+            {
+                <div class="source-card @src.CssClass">
+                    <img class="source-favicon"
+                         src="https://www.google.com/s2/favicons?domain=@(GetDomain(src.Url))&sz=16"
+                         alt="" onerror="this.style.display='none'" />
+                    <div class="source-body">
+                        <div class="source-title">@src.Title</div>
+                        <div class="source-url">@src.Url</div>
+                        @if (!string.IsNullOrEmpty(src.Snippet))
+                        {
+                            <div class="source-snippet">@src.Snippet</div>
+                        }
+                    </div>
+                    <div class="source-status">
+                        @switch (src.Status)
+                        {
+                            case FetchStatus.Loading:
+                                <span class="spinner" style="width:14px;height:14px;"></span>
+                                break;
+                            case FetchStatus.Success:
+                                <span class="badge badge-success">&#x2713;</span>
+                                break;
+                            case FetchStatus.Failed:
+                                <span class="badge badge-muted">&#x2717;</span>
+                                break;
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<!-- ── Phase 3a: Synthesising ──────────────────────────────────────────────── -->
+@if (_phase is Phase.Synthesising or Phase.Elaborating or Phase.Done or Phase.Error)
+{
+    <div class="card">
+        <div class="card-title">
+            &#x1F4CB; Stage 1 &mdash; Research Synthesis
+            @if (_phase == Phase.Synthesising)
+            {
+                <span class="badge badge-warn" style="margin-left:auto;">
+                    <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span>
+                    Synthesising with @ProviderLabel(_provider)&hellip;
+                </span>
+            }
+            else
+            {
+                <span class="badge badge-success" style="margin-left:auto;">&#x2713; Done</span>
+            }
+        </div>
+
+        @if (_phase == Phase.Synthesising && !string.IsNullOrEmpty(_streamText))
+        {
+            <div class="stream-box" id="stream-box">@_streamText</div>
+        }
+        else if (!string.IsNullOrEmpty(_synthesisText))
+        {
+            <details>
+                <summary style="cursor:pointer;color:var(--muted);font-size:.85rem;padding:.5rem 0;">
+                    View initial synthesis&hellip;
+                </summary>
+                <div class="stream-box" style="margin-top:.5rem;max-height:300px;overflow-y:auto;">@_synthesisText</div>
+            </details>
+        }
+    </div>
+}
+
+<!-- ── Phase 3b: Elaborating ───────────────────────────────────────────────── -->
+@if (_phase is Phase.Elaborating or Phase.Done)
+{
+    <div class="card">
+        <div class="card-title">
+            &#x2728; Stage 2 &mdash; Enhanced Report
+            @if (_phase == Phase.Elaborating)
+            {
+                <span class="badge badge-warn" style="margin-left:auto;">
+                    <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span>
+                    Elaborating with @ProviderLabel(_provider)&hellip;
+                </span>
+            }
+            else
+            {
+                <span class="badge badge-success" style="margin-left:auto;">&#x2713; Complete</span>
+            }
+        </div>
+
+        @if (_phase == Phase.Done && !string.IsNullOrEmpty(_renderedHtml))
+        {
+            <div class="report-actions">
+                <button class="btn btn-outline btn-sm" @onclick="CopyReport">
+                    &#x1F4CB; Copy Markdown
+                </button>
+                <button class="btn btn-ghost btn-sm" @onclick="DownloadReport">
+                    &#x2B07;&#xFE0F; Download .md
+                </button>
+            </div>
+            <div class="report-body">@((MarkupString)_renderedHtml)</div>
+        }
+        else if (!string.IsNullOrEmpty(_streamText))
+        {
+            <div class="stream-box" id="stream-box">@_streamText</div>
+        }
+    </div>
+}
+
+<!-- ── Error ───────────────────────────────────────────────────────────────── -->
+@if (_phase == Phase.Error && !string.IsNullOrEmpty(_errorMessage))
+{
+    <div class="alert alert-danger">&#x274C; @_errorMessage</div>
+}
+
+@code {
+    // ── State ────────────────────────────────────────────────────────────────
+
+    private enum Phase { Idle, Searching, Fetching, Synthesising, Elaborating, Done, Error }
+    private enum FetchStatus { Loading, Success, Failed }
+
+    private sealed class SourceCard
+    {
+        public string Url    { get; set; } = "";
+        public string Title  { get; set; } = "Loading…";
+        public string Snippet{ get; set; } = "";
+        public FetchStatus Status { get; set; } = FetchStatus.Loading;
+
+        public string CssClass => Status switch
+        {
+            FetchStatus.Success => "success",
+            FetchStatus.Failed  => "failed",
+            _                   => "loading"
+        };
+    }
+
+    private Phase            _phase          = Phase.Idle;
+    private string           _query          = "";
+    private int              _sourceCount    = 8;
+    private LlmProvider      _provider       = LlmProvider.OpenAI;
+    private List<SourceCard> _sources        = [];
+    private string           _streamText     = "";   // live streaming text (current stage)
+    private string           _synthesisText  = "";   // completed stage 1 output
+    private string           _renderedHtml   = "";
+    private string?          _errorMessage;
+    private CancellationTokenSource? _cts;
+
+    private static readonly Markdig.MarkdownPipeline _pipeline =
+        new Markdig.MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
+
+    private bool IsRunning  => _phase is Phase.Searching or Phase.Fetching or Phase.Synthesising or Phase.Elaborating;
+    private bool CanResearch =>
+        !IsRunning &&
+        !string.IsNullOrWhiteSpace(_query) &&
+        ApiKeys.HasSerperKey &&
+        ApiKeys.HasKey(_provider);
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────
+
+    protected override void OnInitialized()
+    {
+        if (ApiKeys.ConfiguredProviders.Any())
+            _provider = ApiKeys.ConfiguredProviders.First();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        // Always attempt to restore from localStorage on first render.
+        // LoadIntoStoreAsync is additive — it won't null out keys already in memory.
+        await LocalStorage.LoadIntoStoreAsync(ApiKeys);
+
+        // Restore saved provider, falling back to the first configured one.
+        var saved = await JS.InvokeAsync<string?>("lsGet", "dr_provider");
+        if (saved is not null && Enum.TryParse<LlmProvider>(saved, out var savedProvider) && ApiKeys.HasKey(savedProvider))
+            _provider = savedProvider;
+        else if (ApiKeys.ConfiguredProviders.Any())
+            _provider = ApiKeys.ConfiguredProviders.First();
+
+        StateHasChanged();
+    }
+
+    private async Task OnProviderChanged(ChangeEventArgs e)
+    {
+        if (Enum.TryParse<LlmProvider>(e.Value?.ToString(), out var p))
+        {
+            _provider = p;
+            await JS.InvokeVoidAsync("lsSet", "dr_provider", p.ToString());
+        }
+    }
+
+    // ── Research Orchestration ────────────────────────────────────────────────
+
+    private async Task StartResearch()
+    {
+        _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
+
+        _sources.Clear();
+        _streamText   = "";
+        _renderedHtml = "";
+        _errorMessage = null;
+
+        try
+        {
+            // Phase 1: Serper search
+            _phase = Phase.Searching;
+            StateHasChanged();
+
+            var urls = (await SearchService.SearchAsync(_query.Trim(), _sourceCount, ct)).ToList();
+            if (urls.Count == 0)
+                throw new InvalidOperationException("Serper returned no results. Check your Serper API key and try again.");
+
+            // Phase 2: Fetch + extract each URL with live cards
+            _phase = Phase.Fetching;
+            StateHasChanged();
+
+            var successfulResults = new List<SearchResult>();
+
+            foreach (var url in urls)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var card = new SourceCard { Url = url };
+                _sources.Add(card);
+                StateHasChanged();
+
+                try
+                {
+                    var html = await WebFetcher.FetchHtmlAsync(url, ct);
+                    if (!string.IsNullOrWhiteSpace(html))
+                    {
+                        var (title, markdown) = await ContentExtractor.ExtractAsync(html, url);
+                        card.Title = string.IsNullOrWhiteSpace(title) ? url : title;
+
+                        if (!string.IsNullOrWhiteSpace(markdown))
+                        {
+                            card.Snippet = markdown.Length > 250 ? markdown[..250] + "…" : markdown;
+                            card.Status  = FetchStatus.Success;
+                            successfulResults.Add(new SearchResult
+                            {
+                                Url             = url,
+                                Title           = card.Title,
+                                MarkdownContent = markdown
+                            });
+                        }
+                        else
+                        {
+                            card.Title  = "No content extracted";
+                            card.Status = FetchStatus.Failed;
+                        }
+                    }
+                    else
+                    {
+                        card.Title  = "Could not fetch page";
+                        card.Status = FetchStatus.Failed;
+                    }
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    card.Title  = $"Error: {ex.Message[..Math.Min(60, ex.Message.Length)]}";
+                    card.Status = FetchStatus.Failed;
+                }
+
+                StateHasChanged();
+            }
+
+            if (successfulResults.Count == 0)
+                throw new InvalidOperationException("No source pages could be fetched. The sites may be blocking scrapers.");
+
+            var apiKey     = ApiKeys.GetKey(_provider)!;
+            var chunkCount = 0;
+
+            // Phase 3a: Stream Stage 1 — synthesise sources into initial report
+            _phase = Phase.Synthesising;
+            StateHasChanged();
+
+            await foreach (var chunk in LlmService.StreamReportAsync(_query, successfulResults, _provider, apiKey, ct))
+            {
+                _streamText += chunk;
+                if (++chunkCount % 8 == 0)
+                {
+                    await InvokeAsync(StateHasChanged);
+                    await Task.Delay(1, ct);
+                }
+            }
+
+            // Stash Stage 1 output and reset stream buffer for Stage 2
+            _synthesisText = _streamText;
+            _streamText    = "";
+            chunkCount     = 0;
+
+            // Phase 3b: Stream Stage 2 — elaborate the initial report
+            _phase = Phase.Elaborating;
+            await InvokeAsync(StateHasChanged);
+
+            await foreach (var chunk in LlmService.StreamElaborationAsync(_query, _synthesisText, _provider, apiKey, ct))
+            {
+                _streamText += chunk;
+                if (++chunkCount % 8 == 0)
+                {
+                    await InvokeAsync(StateHasChanged);
+                    await Task.Delay(1, ct);
+                }
+            }
+
+            // Render final elaborated Markdown → HTML
+            _renderedHtml = Markdig.Markdown.ToHtml(_streamText, _pipeline);
+            _phase = Phase.Done;
+        }
+        catch (OperationCanceledException)
+        {
+            _phase = Phase.Idle;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+            _phase = Phase.Error;
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void Cancel()
+    {
+        _cts?.Cancel();
+    }
+
+    private void Reset()
+    {
+        _cts?.Cancel();
+        _phase         = Phase.Idle;
+        _sources       = [];
+        _streamText    = "";
+        _synthesisText = "";
+        _renderedHtml  = "";
+        _errorMessage  = null;
+        _query         = "";
+    }
+
+    // ── Actions ───────────────────────────────────────────────────────────────
+
+    private async Task CopyReport()
+    {
+        if (!string.IsNullOrEmpty(_streamText))
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _streamText);
+    }
+
+    private async Task DownloadReport()
+    {
+        if (string.IsNullOrEmpty(_streamText)) return;
+        var fileName = $"research_{DateTime.UtcNow:yyyyMMdd_HHmm}.md";
+        var bytes    = System.Text.Encoding.UTF8.GetBytes(_streamText);
+        var b64      = Convert.ToBase64String(bytes);
+        await JS.InvokeVoidAsync("downloadBase64", b64, fileName, "text/markdown");
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static string GetDomain(string url)
+    {
+        try { return new Uri(url).Host; }
+        catch { return url; }
+    }
+
+    private static string ProviderLabel(LlmProvider p) => p switch
+    {
+        LlmProvider.OpenAI => "OpenAI GPT-4o",
+        LlmProvider.Claude => "Claude Sonnet",
+        LlmProvider.Gemini => "Gemini 2.0 Flash",
+        LlmProvider.Groq   => "Groq Llama 3.3",
+        _                   => p.ToString()
+    };
+
+    public void Dispose() => _cts?.Cancel();
+}

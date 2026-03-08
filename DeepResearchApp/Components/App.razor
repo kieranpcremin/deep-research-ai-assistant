@@ -1,0 +1,50 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["DeepResearchApp.styles.css"]" />
+    <ImportMap />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+
+<body>
+    <Routes @rendermode="InteractiveServer" />
+    <ReconnectModal />
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script>
+        function downloadBase64(base64, filename, mimeType) {
+            const link = document.createElement('a');
+            link.href = 'data:' + mimeType + ';base64,' + base64;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function lsSet(key, value) {
+            try { localStorage.setItem(key, value); } catch {}
+        }
+        function lsGet(key) {
+            try { return localStorage.getItem(key); } catch { return null; }
+        }
+        function lsRemove(key) {
+            try { localStorage.removeItem(key); } catch {}
+        }
+        function lsGetAll(keys) {
+            const result = {};
+            keys.forEach(k => { result[k] = localStorage.getItem(k); });
+            return result;
+        }
+        function lsClear(keys) {
+            keys.forEach(k => localStorage.removeItem(k));
+        }
+    </script>
+</body>
+
+</html>

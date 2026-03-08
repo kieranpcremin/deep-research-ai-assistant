@@ -1,0 +1,195 @@
+@page "/config"
+@rendermode InteractiveServer
+@inject ApiKeyStore ApiKeys
+@inject LocalStorageService LocalStorage
+@inject IJSRuntime JS
+
+<PageTitle>API Keys — DeepResearch</PageTitle>
+
+<div class="page-header">
+    <h1>&#x1F511; API Keys</h1>
+    <p>Keys are saved to your browser's local storage and restored automatically on every visit.</p>
+</div>
+
+@if (_saved)
+{
+    <div class="alert alert-success">&#x2713; Keys saved for this session.</div>
+}
+
+<!-- Serper Section -->
+<div class="card">
+    <div class="card-title">
+        <span>&#x1F50D;</span> Serper Search API
+        @if (ApiKeys.HasSerperKey)
+        {
+            <span class="badge badge-success">&#x2713; Configured</span>
+        }
+        else
+        {
+            <span class="badge badge-muted">Not set</span>
+        }
+    </div>
+    <p style="font-size:.85rem;color:var(--muted);margin-bottom:.85rem;">
+        Required for all research queries. Get a free key (2,500 searches/month) at
+        <a href="https://serper.dev" target="_blank">serper.dev</a>.
+    </p>
+    <label>Serper API Key</label>
+    <input type="password" class="form-control" placeholder="Enter Serper API key..."
+           @bind="_serperKey" @bind:event="oninput" autocomplete="off" />
+</div>
+
+<!-- LLM Providers Section -->
+<div class="card">
+    <div class="card-title"><span>&#x1F916;</span> AI Providers</div>
+    <p style="font-size:.85rem;color:var(--muted);margin-bottom:1.1rem;">
+        Configure at least one AI provider. The selected provider will be used to synthesize your research report.
+    </p>
+
+    <div class="provider-grid">
+        <!-- OpenAI -->
+        <div class="provider-card @(ApiKeys.HasKey(LlmProvider.OpenAI) ? "configured" : "")">
+            <div class="provider-name">&#x1F7E2; OpenAI</div>
+            <div class="provider-model">Model: gpt-4o</div>
+            @if (ApiKeys.HasKey(LlmProvider.OpenAI))
+            {
+                <span class="badge badge-success">&#x2713; Configured</span>
+            }
+            else
+            {
+                <span class="badge badge-muted">Not set</span>
+            }
+            <label style="margin-top:.75rem;">API Key</label>
+            <input type="password" class="form-control" placeholder="sk-..."
+                   @bind="_openAiKey" @bind:event="oninput" autocomplete="off" />
+        </div>
+
+        <!-- Anthropic Claude -->
+        <div class="provider-card @(ApiKeys.HasKey(LlmProvider.Claude) ? "configured" : "")">
+            <div class="provider-name">&#x1F7E0; Claude</div>
+            <div class="provider-model">Model: claude-3-5-sonnet</div>
+            @if (ApiKeys.HasKey(LlmProvider.Claude))
+            {
+                <span class="badge badge-success">&#x2713; Configured</span>
+            }
+            else
+            {
+                <span class="badge badge-muted">Not set</span>
+            }
+            <label style="margin-top:.75rem;">API Key</label>
+            <input type="password" class="form-control" placeholder="sk-ant-..."
+                   @bind="_claudeKey" @bind:event="oninput" autocomplete="off" />
+        </div>
+
+        <!-- Google Gemini -->
+        <div class="provider-card @(ApiKeys.HasKey(LlmProvider.Gemini) ? "configured" : "")">
+            <div class="provider-name">&#x1F535; Gemini</div>
+            <div class="provider-model">Model: gemini-2.0-flash</div>
+            @if (ApiKeys.HasKey(LlmProvider.Gemini))
+            {
+                <span class="badge badge-success">&#x2713; Configured</span>
+            }
+            else
+            {
+                <span class="badge badge-muted">Not set</span>
+            }
+            <label style="margin-top:.75rem;">API Key</label>
+            <input type="password" class="form-control" placeholder="AIza..."
+                   @bind="_geminiKey" @bind:event="oninput" autocomplete="off" />
+        </div>
+
+        <!-- Groq -->
+        <div class="provider-card @(ApiKeys.HasKey(LlmProvider.Groq) ? "configured" : "")">
+            <div class="provider-name">&#x26A1; Groq</div>
+            <div class="provider-model">Model: llama-3.3-70b</div>
+            @if (ApiKeys.HasKey(LlmProvider.Groq))
+            {
+                <span class="badge badge-success">&#x2713; Configured</span>
+            }
+            else
+            {
+                <span class="badge badge-muted">Not set</span>
+            }
+            <label style="margin-top:.75rem;">API Key</label>
+            <input type="password" class="form-control" placeholder="gsk_..."
+                   @bind="_groqKey" @bind:event="oninput" autocomplete="off" />
+        </div>
+    </div>
+</div>
+
+<!-- Actions -->
+<div class="btn-group">
+    <button class="btn btn-primary" @onclick="SaveKeys">
+        &#x1F4BE; Save Keys
+    </button>
+    <button class="btn btn-ghost" @onclick="ClearAll">
+        Clear All
+    </button>
+</div>
+
+@code {
+    private string? _serperKey;
+    private string? _openAiKey;
+    private string? _claudeKey;
+    private string? _geminiKey;
+    private string? _groqKey;
+    private bool    _saved;
+
+    protected override void OnInitialized()
+    {
+        // Populate from in-memory store (already set if navigating within the session)
+        _serperKey = ApiKeys.SerperApiKey;
+        _openAiKey = ApiKeys.OpenAiKey;
+        _claudeKey = ApiKeys.ClaudeKey;
+        _geminiKey = ApiKeys.GeminiKey;
+        _groqKey   = ApiKeys.GroqKey;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        // Load from localStorage — fills ApiKeyStore and form fields
+        await LocalStorage.LoadIntoStoreAsync(ApiKeys);
+        _serperKey = ApiKeys.SerperApiKey;
+        _openAiKey = ApiKeys.OpenAiKey;
+        _claudeKey = ApiKeys.ClaudeKey;
+        _geminiKey = ApiKeys.GeminiKey;
+        _groqKey   = ApiKeys.GroqKey;
+        StateHasChanged();
+    }
+
+    private async Task SaveKeys()
+    {
+        ApiKeys.SerperApiKey = NullIfBlank(_serperKey);
+        ApiKeys.OpenAiKey    = NullIfBlank(_openAiKey);
+        ApiKeys.ClaudeKey    = NullIfBlank(_claudeKey);
+        ApiKeys.GeminiKey    = NullIfBlank(_geminiKey);
+        ApiKeys.GroqKey      = NullIfBlank(_groqKey);
+
+        await LocalStorage.SaveFromStoreAsync(ApiKeys);
+
+        _saved = true;
+        StateHasChanged();
+
+        _ = Task.Delay(3000).ContinueWith(_ =>
+        {
+            _saved = false;
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private async Task ClearAll()
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", "Clear all API keys? This cannot be undone.");
+        if (!confirmed) return;
+
+        _serperKey = _openAiKey = _claudeKey = _geminiKey = _groqKey = null;
+        ApiKeys.SerperApiKey = ApiKeys.OpenAiKey = ApiKeys.ClaudeKey =
+            ApiKeys.GeminiKey = ApiKeys.GroqKey = null;
+        await LocalStorage.ClearAllAsync();
+        _saved = false;
+    }
+
+    private static string? NullIfBlank(string? s) =>
+        string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+}
