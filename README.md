@@ -1,5 +1,7 @@
 # 🔬 Deep Research AI Assistant
 
+![Demo](demo.gif)
+
 > **Turn any question into a fully-researched, AI-elaborated report in minutes** — powered by live web search, intelligent content extraction, and a two-stage AI synthesis pipeline.
 
 ---
