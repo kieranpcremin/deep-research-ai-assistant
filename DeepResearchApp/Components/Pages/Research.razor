@@ -4,6 +4,7 @@
 @inject IWebFetcher WebFetcher
 @inject IContentExtractor ContentExtractor
 @inject ILlmService LlmService
+@inject IVideoSearchService VideoSearch
 @inject ApiKeyStore ApiKeys
 @inject LocalStorageService LocalStorage
 @inject IJSRuntime JS
@@ -37,7 +38,7 @@
     <div class="form-row" style="margin-top:1rem;">
         <div>
             <label>Number of sources (@_sourceCount)</label>
-            <input type="range" min="3" max="15" step="1"
+            <input type="range" min="3" max="10" step="1"
                    @bind="_sourceCount" @bind:event="oninput"
                    style="width:100%;margin-top:.35rem;"
                    disabled="@IsRunning" />
@@ -136,6 +137,58 @@
     </div>
 }
 
+<!-- ── Related Videos ─────────────────────────────────────────────────────── -->
+@if (_videos.Count > 0)
+{
+    <div class="card">
+        <div class="card-title">
+            &#x1F3AC; Related Videos
+            <span class="badge badge-accent">@_videos.Count found</span>
+        </div>
+        <div class="video-grid">
+            @foreach (var video in _videos)
+            {
+                <a class="video-card" href="@video.Url" target="_blank" rel="noopener noreferrer">
+                    <div class="video-thumb-wrap">
+                        @if (!string.IsNullOrEmpty(video.ThumbnailUrl))
+                        {
+                            <img src="@video.ThumbnailUrl" alt="@video.Title" loading="lazy" />
+                        }
+                        else
+                        {
+                            <div style="width:100%;height:100%;background:#1a1a2e;display:flex;align-items:center;justify-content:center;color:#555;font-size:2rem;">&#x1F3AC;</div>
+                        }
+                        <div class="video-play-overlay">
+                            <div class="video-play-btn">&#x25B6;</div>
+                        </div>
+                        @if (!string.IsNullOrEmpty(video.Duration))
+                        {
+                            <span class="video-duration">@video.Duration</span>
+                        }
+                    </div>
+                    <div class="video-info">
+                        <div class="video-title">@video.Title</div>
+                        <div class="video-meta">
+                            @if (!string.IsNullOrEmpty(video.Channel))
+                            {
+                                <span>@video.Channel</span>
+                            }
+                            @if (!string.IsNullOrEmpty(video.Channel) && !string.IsNullOrEmpty(video.PublishedDate))
+                            {
+                                <span class="video-meta-dot">•</span>
+                            }
+                            @if (!string.IsNullOrEmpty(video.PublishedDate))
+                            {
+                                <span>@video.PublishedDate</span>
+                            }
+                        </div>
+                    </div>
+                </a>
+            }
+        </div>
+    </div>
+}
+
 <!-- ── Phase 3a: Synthesising ──────────────────────────────────────────────── -->
 @if (_phase is Phase.Synthesising or Phase.Elaborating or Phase.Done or Phase.Error)
 {
@@ -199,6 +252,9 @@
                 <button class="btn btn-ghost btn-sm" @onclick="DownloadReport">
                     &#x2B07;&#xFE0F; Download .md
                 </button>
+                <button class="btn btn-ghost btn-sm" @onclick="ExportPdf">
+                    &#x1F4F0; Export PDF
+                </button>
             </div>
             <div class="report-body">@((MarkupString)_renderedHtml)</div>
         }
@@ -236,16 +292,17 @@
         };
     }
 
-    private Phase            _phase          = Phase.Idle;
-    private string           _query          = "";
-    private int              _sourceCount    = 8;
-    private LlmProvider      _provider       = LlmProvider.OpenAI;
-    private List<SourceCard> _sources        = [];
-    private string           _streamText     = "";   // live streaming text (current stage)
-    private string           _synthesisText  = "";   // completed stage 1 output
-    private string           _renderedHtml   = "";
-    private string?          _errorMessage;
-    private CancellationTokenSource? _cts;
+    private Phase                       _phase          = Phase.Idle;
+    private string                      _query          = "";
+    private int                         _sourceCount    = 8;
+    private LlmProvider                 _provider       = LlmProvider.OpenAI;
+    private List<SourceCard>            _sources        = [];
+    private IReadOnlyList<VideoResult>  _videos         = [];
+    private string                      _streamText     = "";   // live streaming text (current stage)
+    private string                      _synthesisText  = "";   // completed stage 1 output
+    private string                      _renderedHtml   = "";
+    private string?                     _errorMessage;
+    private CancellationTokenSource?    _cts;
 
     private static readonly Markdig.MarkdownPipeline _pipeline =
         new Markdig.MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
@@ -306,11 +363,17 @@
 
         try
         {
-            // Phase 1: Serper search
+            // Phase 1: web search + video search in parallel
             _phase = Phase.Searching;
             StateHasChanged();
 
-            var urls = (await SearchService.SearchAsync(_query.Trim(), _sourceCount, ct)).ToList();
+            var webTask   = SearchService.SearchAsync(_query.Trim(), _sourceCount, ct);
+            var videoTask = VideoSearch.SearchVideosAsync(_query.Trim(), 6, ct);
+            await Task.WhenAll(webTask, videoTask);
+
+            var urls = webTask.Result.ToList();
+            _videos  = videoTask.Result;
+
             if (urls.Count == 0)
                 throw new InvalidOperationException("Serper returned no results. Check your Serper API key and try again.");
 
@@ -437,6 +500,7 @@
         _cts?.Cancel();
         _phase         = Phase.Idle;
         _sources       = [];
+        _videos        = [];
         _streamText    = "";
         _synthesisText = "";
         _renderedHtml  = "";
@@ -459,6 +523,13 @@
         var bytes    = System.Text.Encoding.UTF8.GetBytes(_streamText);
         var b64      = Convert.ToBase64String(bytes);
         await JS.InvokeVoidAsync("downloadBase64", b64, fileName, "text/markdown");
+    }
+
+    private async Task ExportPdf()
+    {
+        if (string.IsNullOrEmpty(_renderedHtml)) return;
+        var title = $"Deep Research — {_query}";
+        await JS.InvokeVoidAsync("printReport", _renderedHtml, title);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

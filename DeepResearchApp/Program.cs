@@ -25,6 +25,9 @@ builder.Services.AddScoped<ISearchService, RuntimeSerperSearchService>();
 // LLM streaming service
 builder.Services.AddScoped<ILlmService, LlmService>();
 
+// YouTube video search via Serper
+builder.Services.AddScoped<IVideoSearchService, VideoSearchService>();
+
 // localStorage persistence for API keys
 builder.Services.AddScoped<LocalStorageService>();
 

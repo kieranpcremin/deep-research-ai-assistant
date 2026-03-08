@@ -44,6 +44,53 @@
         function lsClear(keys) {
             keys.forEach(k => localStorage.removeItem(k));
         }
+
+        function printReport(htmlContent, title) {
+            const win = window.open('', '_blank');
+            win.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${title}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Georgia', 'Times New Roman', serif;
+      font-size: 13pt;
+      line-height: 1.75;
+      color: #1a1a1a;
+      max-width: 780px;
+      margin: 2.5rem auto;
+      padding: 0 1.5rem;
+    }
+    h1 { font-size: 1.9rem; font-weight: 700; margin: 0 0 1rem; border-bottom: 2px solid #222; padding-bottom: .5rem; }
+    h2 { font-size: 1.25rem; font-weight: 700; margin: 2rem 0 .6rem; border-bottom: 1px solid #ccc; padding-bottom: .25rem; }
+    h3 { font-size: 1.05rem; font-weight: 700; margin: 1.4rem 0 .4rem; }
+    p  { margin-bottom: .85rem; }
+    ul, ol { padding-left: 1.5rem; margin-bottom: .85rem; }
+    li { margin-bottom: .3rem; }
+    blockquote { border-left: 3px solid #888; padding-left: 1rem; color: #555; margin: .75rem 0; }
+    code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; font-size: .88em; font-family: 'Courier New', monospace; }
+    pre  { background: #f4f4f4; padding: 1rem; border-radius: 5px; overflow-x: auto; margin: .75rem 0; }
+    pre code { background: none; padding: 0; }
+    table { border-collapse: collapse; width: 100%; margin: .75rem 0; font-size: .9rem; }
+    th, td { border: 1px solid #ccc; padding: .45rem .7rem; text-align: left; }
+    th { background: #f0f0f0; font-weight: 600; }
+    a  { color: #4f46e5; text-decoration: none; }
+    hr { border: none; border-top: 1px solid #ddd; margin: 1.25rem 0; }
+    @@media print {
+      body { margin: 0; max-width: 100%; }
+      h2   { page-break-before: auto; }
+      h1, h2, h3 { page-break-after: avoid; }
+      pre, blockquote, table { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>${htmlContent}</body>
+</html>`);
+            win.document.close();
+            win.onload = () => { win.focus(); win.print(); };
+        }
     </script>
 </body>
 

@@ -9,7 +9,7 @@
 Most AI tools answer questions from training data alone. **Deep Research AI Assistant** goes further — it searches the live web, reads the actual source pages, then puts them through a two-stage AI pipeline to produce reports with real depth and practical value.
 
 ```
-Your Question  →  Live Web Search  →  Fetch & Extract Sources  →  Stage 1: Synthesise  →  Stage 2: Elaborate  →  Rich Report
+Your Question  →  Live Web Search + Video Search  →  Fetch & Extract Sources  →  Stage 1: Synthesise  →  Stage 2: Elaborate  →  Rich Report + Related Videos
 ```
 
 ---
@@ -21,6 +21,11 @@ Your Question  →  Live Web Search  →  Fetch & Extract Sources  →  Stage 1:
 - Fetches and extracts full content from top results — not just snippets
 - Handles static pages and JavaScript-rendered SPAs via **Playwright** fallback
 - Live source cards show fetch progress as it happens
+
+### 🎬 Related YouTube Videos
+- Automatically searches for top YouTube videos on the topic **in parallel** with web search — no extra wait
+- Displays a responsive thumbnail grid with channel name, duration, and publish date
+- Click any card to open and watch directly on YouTube
 
 ### 🧠 Two-Stage AI Pipeline
 - **Stage 1 — Research Synthesis**: Structures and cross-references the raw sources into a coherent, cited report faithful to the source material
@@ -51,6 +56,7 @@ Choose your AI provider — all support streaming output so you see the report b
 ### 📄 Report Export
 - **Copy Markdown** to clipboard
 - **Download as `.md`** file for use in Obsidian, Notion, or any editor
+- **Export as PDF** — opens a clean, print-optimised view and triggers the browser's save-as-PDF dialog; no dependencies, perfect typography
 
 ---
 
